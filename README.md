@@ -25,7 +25,7 @@ O **AgroRisk AI** é um sistema de análise preditiva de risco para equipamentos
 
 Nesta **Sprint 3 (Fase 5)**, o objetivo é **integrar os módulos desenvolvidos nas Sprints anteriores em um protótipo funcional de ponta a ponta**. Os dados de telemetria entram no sistema, são persistidos em banco, processados pelo modelo de Machine Learning treinado na Sprint 2 e apresentados em uma interface simples para Operadores, Gestores de Frota e Analistas da Seguradora.
 
-> **Estado atual:** base da Sprint 2 já importada (`src/data`, `src/sql`, `src/ml`, `src/dashboard`). A integração backend, segurança e fluxo contínuo estão em desenvolvimento (veja as [Issues](https://github.com/zjpza/fase-5-sprint-3/issues)).
+> **Estado atual:** MVP funcional integrado em desenvolvimento. Backend FastAPI, pipeline ETL, modelo de ML e auditoria já implementados. Dashboard e documentação final em andamento (veja as [Issues](https://github.com/zjpza/fase-5-sprint-3/issues)).
 
 ---
 
@@ -167,14 +167,14 @@ venv\Scripts\activate     # Windows
 pip install -r requirements.txt
 ```
 
-### Executar o fluxo ponta a ponta (em desenvolvimento)
+### Executar o fluxo ponta a ponta
 
 ```bash
-# 1. Gerar o banco de dados e os dados iniciais
+# 1. (Opcional) Regenerar o banco de dados e os dados iniciais
 python src/data/pipeline.py
 
 # 2. Iniciar o backend (API)
-python src/api/main.py
+python -m uvicorn start_api:app --host 127.0.0.1 --port 8000
 
 # 3. Em outro terminal, enviar telemetria e obter predições
 python src/api/pipeline_client.py
@@ -183,7 +183,20 @@ python src/api/pipeline_client.py
 streamlit run src/dashboard/app.py
 ```
 
-> **Nota:** os scripts `src/api/main.py`, `src/api/pipeline_client.py` e `src/data/pipeline.py` serão criados durante a Sprint 3. As instruções serão atualizadas conforme o fluxo for implementado.
+### Endpoints da API
+
+| Método | Endpoint | Descrição | Autenticação |
+|--------|----------|-----------|--------------|
+| POST | `/api/v1/login` | Autenticação JWT | Pública |
+| POST | `/api/v1/telemetria` | Recebe telemetria e retorna score/alerta | JWT |
+| GET | `/api/v1/equipamentos` | Lista frota | JWT |
+| GET | `/api/v1/equipamentos/{id}/risco` | Risco atual do equipamento | JWT |
+| GET | `/api/v1/alertas` | Alertas recentes | JWT |
+
+Usuários de demonstração:
+- `carlos@agrorisk.local` / `operador123` — Operador
+- `fernanda@agrorisk.local` / `gestor123` — Gestor de Frota
+- `ricardo@sompo.local` / `analista123` — Analista da Seguradora
 
 ---
 
