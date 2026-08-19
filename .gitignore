@@ -1,0 +1,39 @@
+# Ambiente virtual
+venv/
+.env/
+.env
+
+# Banco de dados local (gerado em tempo de execução)
+*.db
+*.sqlite
+*.sqlite3
+
+# Modelos e artefatos grandes (podem ser gerados)
+*.pkl
+*.joblib
+
+# Dados processados e brutos (podem ser regenerados)
+data/raw/
+data/processed/
+
+# Logs
+*.log
+logs/
+
+# Cache Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# Streamlit
+.streamlit/
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
