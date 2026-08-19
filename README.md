@@ -25,6 +25,8 @@ O **AgroRisk AI** é um sistema de análise preditiva de risco para equipamentos
 
 Nesta **Sprint 3 (Fase 5)**, o objetivo é **integrar os módulos desenvolvidos nas Sprints anteriores em um protótipo funcional de ponta a ponta**. Os dados de telemetria entram no sistema, são persistidos em banco, processados pelo modelo de Machine Learning treinado na Sprint 2 e apresentados em uma interface simples para Operadores, Gestores de Frota e Analistas da Seguradora.
 
+> **Estado atual:** base da Sprint 2 já importada (`src/data`, `src/sql`, `src/ml`, `src/dashboard`). A integração backend, segurança e fluxo contínuo estão em desenvolvimento (veja as [Issues](https://github.com/zjpza/fase-5-sprint-3/issues)).
+
 ---
 
 ## 🎯 Objetivos da Sprint 3
@@ -86,35 +88,44 @@ Camadas:
 fase-5-sprint-3/
 ├── README.md                          # Este arquivo
 ├── assets/                            # Imagens, diagramas e screenshots
-│   └── diagrama_arquitetura.png
+│   ├── diagrama_arquitetura.png
+│   └── screenshots/
 ├── docs/                              # Documentação complementar
 │   └── fluxo_integracao.md
 ├── src/                               # Código fonte
-│   ├── api/                           # Backend integrador (FastAPI/Flask)
+│   ├── api/                           # Backend integrador (FastAPI)
 │   │   ├── main.py
 │   │   ├── routes.py
 │   │   ├── auth.py
-│   │   └── models_api.py
+│   │   ├── dependencies.py
+│   │   └── schemas.py
 │   ├── data/                          # ETL e pipelines
 │   │   ├── generate_dataset.py
 │   │   ├── feature_engineering.py
-│   │   └── load_to_sql.py
+│   │   ├── load_to_sql.py
+│   │   └── pipeline.py                # (a criar) orquestrador ETL
 │   ├── ml/                            # Modelo preditivo e inferência
 │   │   ├── models/
+│   │   │   └── risk_model.pkl
 │   │   ├── 04_predict.py
-│   │   └── risk_model.pkl
+│   │   ├── predictor.py               # (a criar) wrapper de inferência
+│   │   └── relatorio_metricas.md
 │   ├── sql/                           # Schema, views, triggers e seeds
 │   │   ├── 01_schema.sql
 │   │   ├── 02_seed_data.sql
-│   │   └── 03_views.sql
-│   ├── security/                      # RBAC, logs e proteção
+│   │   ├── 03_views.sql
+│   │   ├── 04_queries_analiticas.sql
+│   │   └── 05_audit_schema.sql        # (a criar) tabela de auditoria
+│   ├── security/                      # RBAC, JWT e auditoria
+│   │   ├── auth.py
 │   │   ├── rbac.py
 │   │   └── audit_logger.py
-│   └── dashboard/                     # Interface simples
+│   └── dashboard/                     # Interface simples (Streamlit)
 │       └── app.py
 ├── tests/                             # Testes básicos do fluxo integrado
 ├── requirements.txt                   # Dependências Python
-└── .gitignore
+├── .gitignore
+└── sompo.db                           # (a gerar) banco inicial populado
 ```
 
 ---
@@ -156,18 +167,23 @@ venv\Scripts\activate     # Windows
 pip install -r requirements.txt
 ```
 
-### Executar o fluxo ponta a ponta
+### Executar o fluxo ponta a ponta (em desenvolvimento)
 
 ```bash
-# 1. Iniciar o backend (API)
+# 1. Gerar o banco de dados e os dados iniciais
+python src/data/pipeline.py
+
+# 2. Iniciar o backend (API)
 python src/api/main.py
 
-# 2. Em outro terminal, gerar dados e fazer predições via API
+# 3. Em outro terminal, enviar telemetria e obter predições
 python src/api/pipeline_client.py
 
-# 3. Iniciar o dashboard
+# 4. Iniciar o dashboard
 streamlit run src/dashboard/app.py
 ```
+
+> **Nota:** os scripts `src/api/main.py`, `src/api/pipeline_client.py` e `src/data/pipeline.py` serão criados durante a Sprint 3. As instruções serão atualizadas conforme o fluxo for implementado.
 
 ---
 
