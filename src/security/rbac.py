@@ -4,11 +4,8 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 
-from database import get_db
 from security.auth import get_current_user
 
-
-DbDep = Annotated[sqlite3.Connection, Depends(get_db)]
 UserDep = Annotated[dict, Depends(get_current_user)]
 
 

@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
     id_usuario INTEGER PRIMARY KEY AUTOINCREMENT,
     nome TEXT NOT NULL,
     email TEXT UNIQUE,
+    senha_hash TEXT,
     role TEXT NOT NULL CHECK(role IN ('Operador', 'GestorFrota', 'AnalistaSeguradora')),
     id_equipamento_acesso TEXT,
     ativo INTEGER DEFAULT 1 CHECK(ativo IN (0, 1)),

@@ -11,10 +11,10 @@ VALUES
     ('EQ-RS-0019', 'Trator', 'RS', -30.0346, -51.2177, 2018, 7500);
 
 -- Usuários por persona para demonstrar RBAC.
-INSERT OR IGNORE INTO usuarios (nome, email, role, id_equipamento_acesso) VALUES
-    ('Carlos Silva', 'carlos@agrorisk.local', 'Operador', 'EQ-MT-0023'),
-    ('Fernanda Costa', 'fernanda@agrorisk.local', 'GestorFrota', NULL),
-    ('Ricardo Mendes', 'ricardo@sompo.local', 'AnalistaSeguradora', NULL);
+INSERT OR IGNORE INTO usuarios (nome, email, senha_hash, role, id_equipamento_acesso) VALUES
+    ('Carlos Silva', 'carlos@agrorisk.local', '$2b$12$9tKATY.UHIATYfbllvEP6eK9rHJT04yyumO8jbl0tZw8oFV/uD6Yq', 'Operador', 'EQ-MT-0023'),
+    ('Fernanda Costa', 'fernanda@agrorisk.local', '$2b$12$.iUcFsUUfEVgmyfRexJXfeekGvdxgoScWSECbvwz4SmepY9aa4Us.', 'GestorFrota', NULL),
+    ('Ricardo Mendes', 'ricardo@sompo.local', '$2b$12$UVnBHAXEYjxU4JaNcmVWFOBy/j7KRIwRsgOQIcw.4Z0xhFkSJlc7K', 'AnalistaSeguradora', NULL);
 
 -- Regras de negócio usadas para explicar a composição do score de risco.
 CREATE TABLE IF NOT EXISTS regras_risco (

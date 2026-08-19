@@ -1,10 +1,11 @@
 """
 AgroRisk AI - Dashboard de Risco Operacional em Frotas Agricolas
-FIAP + Sompo Seguros | Sprint 2 - Fase 4 | Issue #4
+FIAP + Sompo Seguros | Sprint 3 - Fase 5
 
-Interface visual que consome o banco SQL (sompo.db) e apresenta o nivel de
+Interface visual que consome a API REST (FastAPI) e apresenta o nivel de
 risco por equipamento/regiao, alertas preventivos, evolucao temporal e a
-predicao do modelo de ML. Visoes diferenciadas por persona:
+predicao do modelo de ML. Visoes diferenciadas por persona, derivadas do
+papel do usuario autenticado via JWT:
   - Operador        -> foco em 1 equipamento + alertas simples (US-01)
   - Gestor de Frota -> overview da frota, mapa e tendencias (US-04, US-05)
   - Analista        -> historico auditavel de alertas + exportacao (US-07)
@@ -13,9 +14,9 @@ Executar:  streamlit run src/dashboard/app.py
 """
 from __future__ import annotations
 
-import sqlite3
-from pathlib import Path
+import os
 
+import httpx
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -24,8 +25,7 @@ import streamlit as st
 # --------------------------------------------------------------------------- #
 # Configuracao geral
 # --------------------------------------------------------------------------- #
-ROOT = Path(__file__).resolve().parents[2]
-DB_PATH = ROOT / "sompo.db"
+API_BASE_URL = os.getenv("DASHBOARD_API_URL", "http://127.0.0.1:8000/api/v1")
 
 CORES_RISCO = {
     "Baixo": "#2ecc71",
@@ -50,6 +50,13 @@ ROTULOS = {
 
 # Esconde a barra de ferramentas em ingles do Plotly e deixa em pt-BR.
 PLOT_CONFIG = {"displayModeBar": False, "locale": "pt-BR"}
+
+# Mapeamento papel -> label amigavel (para titulo da visao).
+LABEL_PAPEL = {
+    "Operador": "Operador",
+    "GestorFrota": "Gestor de Frota",
+    "AnalistaSeguradora": "Analista da Seguradora",
+}
 
 st.set_page_config(
     page_title="AgroRisk AI | Sompo",
@@ -97,45 +104,88 @@ st.markdown(
 
 
 # --------------------------------------------------------------------------- #
-# Camada de dados
+# Camada de dados — cliente da API
 # --------------------------------------------------------------------------- #
-@st.cache_data(show_spinner=False)
-def carregar_dados() -> dict[str, pd.DataFrame]:
-    """Le o banco SQL e devolve dataframes ja preparados para o dashboard."""
-    conn = sqlite3.connect(DB_PATH)
-    telemetria = pd.read_sql("SELECT * FROM telemetria", conn, parse_dates=["data_hora"])
-    equipamentos = pd.read_sql("SELECT * FROM equipamentos", conn)
-    scores = pd.read_sql("SELECT * FROM scores_modelo", conn)
-    usuarios = pd.read_sql("SELECT * FROM usuarios", conn)
-    conn.close()
+def _auth_headers() -> dict:
+    """Retorna headers com o token JWT armazenado em session_state."""
+    return {"Authorization": f"Bearer {st.session_state['token']}"}
 
-    telemetria = telemetria.merge(
-        equipamentos[["id_equipamento", "tipo_equipamento", "estado_uf"]],
-        on="id_equipamento",
-        how="left",
-    )
 
-    if not scores.empty:
-        # Mantem apenas a predicao mais recente por registro (evita duplicar linhas no merge).
-        pred = (
-            scores.sort_values("id_score")
-            .drop_duplicates("id_registro", keep="last")
-            [["id_registro", "nivel_risco_predito", "modelo_utilizado"]]
+def fazer_login(email: str, senha: str) -> dict | None:
+    """Autentica na API e retorna os dados do usuario + token."""
+    try:
+        resp = httpx.post(f"{API_BASE_URL}/login", json={"email": email, "senha": senha}, timeout=10)
+    except httpx.ConnectError:
+        st.error("Não foi possível conectar à API. Verifique se o servidor está rodando.")
+        return None
+    if resp.status_code == 401:
+        st.error("Credenciais inválidas.")
+        return None
+    if resp.status_code != 200:
+        st.error(f"Erro no login (HTTP {resp.status_code}).")
+        return None
+    token = resp.json()["access_token"]
+    # Valida o token server-side e obtém os dados do usuário via /me (não
+    # decodifica o JWT localmente — a API é a fonte de verdade do papel).
+    try:
+        me = httpx.get(
+            f"{API_BASE_URL}/me",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
         )
-        telemetria = telemetria.merge(pred, on="id_registro", how="left")
-    else:
-        telemetria["nivel_risco_predito"] = None
-        telemetria["modelo_utilizado"] = None
-
-    telemetria["nivel_risco"] = pd.Categorical(
-        telemetria["nivel_risco"], categories=ORDEM_RISCO, ordered=True
-    )
+    except httpx.ConnectError:
+        st.error("Não foi possível validar a sessão na API.")
+        return None
+    if me.status_code != 200:
+        st.error(f"Sessão inválida (HTTP {me.status_code}).")
+        return None
+    dados = me.json()
     return {
-        "telemetria": telemetria,
-        "equipamentos": equipamentos,
-        "scores": scores,
-        "usuarios": usuarios,
+        "token": token,
+        "id_usuario": dados["id_usuario"],
+        "nome": dados["nome"],
+        "role": dados["role"],
+        "id_equipamento_acesso": dados.get("id_equipamento_acesso"),
     }
+
+
+def carregar_telemetria() -> pd.DataFrame:
+    """Busca o histórico de telemetria via API (GET /api/v1/telemetria)."""
+    resp = httpx.get(
+        f"{API_BASE_URL}/telemetria",
+        params={"limit": 2000},
+        headers=_auth_headers(),
+        timeout=30,
+    )
+    resp.raise_for_status()
+    df = pd.DataFrame(resp.json())
+    if df.empty:
+        return df
+    df["data_hora"] = pd.to_datetime(df["data_hora"], format="mixed")
+    df["nivel_risco"] = pd.Categorical(df["nivel_risco"], categories=ORDEM_RISCO, ordered=True)
+    return df
+
+
+def carregar_equipamentos() -> pd.DataFrame:
+    """Busca a lista de equipamentos via API (GET /api/v1/equipamentos)."""
+    resp = httpx.get(
+        f"{API_BASE_URL}/equipamentos",
+        headers=_auth_headers(),
+        timeout=15,
+    )
+    resp.raise_for_status()
+    return pd.DataFrame(resp.json())
+
+
+def carregar_alertas() -> pd.DataFrame:
+    """Busca alertas via API (GET /api/v1/alertas)."""
+    resp = httpx.get(
+        f"{API_BASE_URL}/alertas",
+        headers=_auth_headers(),
+        timeout=15,
+    )
+    resp.raise_for_status()
+    return pd.DataFrame(resp.json())
 
 
 def ultima_leitura_por_equipamento(df: pd.DataFrame) -> pd.DataFrame:
@@ -371,38 +421,33 @@ def visao_operador(df: pd.DataFrame) -> None:
     st.plotly_chart(fig, use_container_width=True, config=PLOT_CONFIG)
 
 
-def visao_analista(df: pd.DataFrame) -> None:
+def visao_analista() -> None:
     st.caption(
-        "Visão **Analista da Seguradora** — histórico auditável de todos os "
-        "alertas de risco Alto/Crítico, com exportação para análise de sinistros."
+        "Visão **Analista da Seguradora** — histórico auditável dos alertas "
+        "de risco Alto/Crítico emitidos pelo sistema, com exportação para análise de sinistros."
     )
-    alertas = df[df["nivel_risco"].isin(["Alto", "Crítico"])].copy()
-    alertas = alertas.sort_values("data_hora", ascending=False)
+    alertas = carregar_alertas()
+    if alertas.empty:
+        st.info("Nenhum alerta emitido até o momento.")
+        return
+    alertas = alertas.sort_values("data_hora_alerta", ascending=False)
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("Alertas no período", len(alertas))
+    c1.metric("Alertas emitidos", len(alertas))
     c2.metric("Críticos", int((alertas["nivel_risco"] == "Crítico").sum()))
     c3.metric("Equipamentos afetados", alertas["id_equipamento"].nunique())
 
     st.divider()
     st.subheader("🧾 Histórico auditável de alertas")
-    cols = [
-        "data_hora", "id_equipamento", "tipo_equipamento", "estado_uf",
-        "score_risco", "nivel_risco", "nivel_risco_predito", "proximidade_agua_m",
-    ]
+    cols = ["data_hora_alerta", "id_equipamento", "nivel_risco", "score_risco", "tipo_alerta", "mensagem"]
     audit = alertas[cols].rename(
         columns={
-            "data_hora": "Data/Hora", "id_equipamento": "Equipamento",
-            "tipo_equipamento": "Tipo", "estado_uf": "Região",
-            "score_risco": "Score", "nivel_risco": "Risco (regra)",
-            "nivel_risco_predito": "Risco (ML)",
-            "proximidade_agua_m": "Prox. água (m)",
+            "data_hora_alerta": "Data/Hora", "id_equipamento": "Equipamento",
+            "nivel_risco": "Risco", "score_risco": "Score",
+            "tipo_alerta": "Tipo", "mensagem": "Mensagem",
         }
     )
-    st.dataframe(
-        audit, use_container_width=True, hide_index=True,
-        column_config=config_tabela_risco(),
-    )
+    st.dataframe(audit, use_container_width=True, hide_index=True)
     st.download_button(
         "⬇️ Exportar histórico (CSV)",
         audit.to_csv(index=False).encode("utf-8"),
@@ -412,22 +457,84 @@ def visao_analista(df: pd.DataFrame) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# App
+# Tela de login
 # --------------------------------------------------------------------------- #
-PERSONAS = {
-    "Gestor de Frota": "👔",
-    "Operador": "🧑‍🌾",
-    "Analista da Seguradora": "🔎",
-}
+def tela_login() -> None:
+    """Exibe o formulário de login no sidebar e o hero na área principal."""
+    st.markdown(
+        """
+        <div class="hero">
+            <h1>🚜 AgroRisk AI — Predição de Risco Operacional</h1>
+            <p>FIAP + Sompo Seguros · Da gestão reativa à preventiva em frotas agrícolas</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.info("Faça login para acessar o dashboard. A autenticação é feita via JWT na API.")
+
+    st.sidebar.markdown("## 🔐 Login")
+    email = st.sidebar.text_input("Email", value="", placeholder="email@agrorisk.local")
+    senha = st.sidebar.text_input("Senha", value="", type="password")
+    if st.sidebar.button("Entrar", use_container_width=True):
+        if not email or not senha:
+            st.sidebar.warning("Preencha email e senha.")
+        else:
+            with st.spinner("Autenticando..."):
+                dados = fazer_login(email, senha)
+            if dados:
+                st.session_state["token"] = dados["token"]
+                st.session_state["id_usuario"] = dados["id_usuario"]
+                st.session_state["nome"] = dados["nome"]
+                st.session_state["role"] = dados["role"]
+                st.session_state["id_equipamento_acesso"] = dados["id_equipamento_acesso"]
+                st.rerun()
+
+    st.sidebar.markdown("---")
+    st.sidebar.caption("**Usuários de demonstração:**")
+    st.sidebar.caption("Carlos · `carlos@agrorisk.local` / `operador123`")
+    st.sidebar.caption("Fernanda · `fernanda@agrorisk.local` / `gestor123`")
+    st.sidebar.caption("Ricardo · `ricardo@sompo.local` / `analista123`")
 
 
+# --------------------------------------------------------------------------- #
+# App principal
+# --------------------------------------------------------------------------- #
 def main() -> None:
-    if not DB_PATH.exists():
-        st.error(f"Banco não encontrado em {DB_PATH}. Rode o pipeline da Issue #1/#2 antes.")
-        st.stop()
+    # --- Verifica autenticação ---
+    if "token" not in st.session_state:
+        tela_login()
+        return
 
-    dados = carregar_dados()
-    df = dados["telemetria"]
+    role = st.session_state["role"]
+    label = LABEL_PAPEL.get(role, role)
+
+    # --- Sidebar: usuario + logout + filtros ---
+    st.sidebar.markdown(f"## 👤 {label}")
+    st.sidebar.caption(f"Autenticado como **{st.session_state['nome']}**")
+    if st.sidebar.button("🚪 Sair"):
+        for key in ("token", "id_usuario", "nome", "role", "id_equipamento_acesso"):
+            st.session_state.pop(key, None)
+        st.rerun()
+
+    # --- Carrega dados da API ---
+    try:
+        df = carregar_telemetria()
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 401:
+            st.error("Sessão expirada. Faça login novamente.")
+            for key in ("token", "id_usuario", "nome", "role", "id_equipamento_acesso"):
+                st.session_state.pop(key, None)
+            st.rerun()
+        else:
+            st.error(f"Erro ao carregar telemetria (HTTP {exc.response.status_code}).")
+        return
+    except httpx.ConnectError:
+        st.error("Não foi possível conectar à API. Verifique se o servidor está rodando.")
+        return
+
+    if df.empty:
+        st.warning("Nenhum registro de telemetria encontrado.")
+        return
 
     st.markdown(
         """
@@ -439,15 +546,7 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-    # ----- Sidebar: persona + filtros -----
-    st.sidebar.markdown("## 👤 Quem está usando?")
-    persona = st.sidebar.radio(
-        "Persona",
-        list(PERSONAS.keys()),
-        format_func=lambda p: f"{PERSONAS[p]}  {p}",
-        label_visibility="collapsed",
-    )
-
+    # --- Filtros (client-side, sobre o DataFrame retornado pela API) ---
     st.sidebar.markdown("## 🔎 Filtros")
     ufs = sorted(df["estado_uf"].dropna().unique())
     tipos = sorted(df["tipo_equipamento"].dropna().unique())
@@ -476,14 +575,15 @@ def main() -> None:
 
     if df_f.empty:
         st.warning("Nenhum registro para os filtros selecionados.")
-        st.stop()
+        return
 
-    if persona == "Gestor de Frota":
+    # --- Roteia para a visao da persona autenticada ---
+    if role == "GestorFrota":
         visao_gestor(df_f)
-    elif persona == "Operador":
+    elif role == "Operador":
         visao_operador(df_f)
     else:
-        visao_analista(df_f)
+        visao_analista()
 
 
 if __name__ == "__main__":

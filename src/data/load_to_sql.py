@@ -17,11 +17,6 @@ EQUIPAMENTOS_SEED = [
     ("EQ-SP-0008", "Trator", "SP", -22.9105, -47.0626, 2022, 9000),
     ("EQ-RS-0019", "Trator", "RS", -30.0346, -51.2177, 2018, 7500),
 ]
-USUARIOS_SEED = [
-    ("Carlos Silva", "carlos@agrorisk.local", "Operador", "EQ-MT-0023"),
-    ("Fernanda Costa", "fernanda@agrorisk.local", "GestorFrota", None),
-    ("Ricardo Mendes", "ricardo@sompo.local", "AnalistaSeguradora", None),
-]
 
 
 def carregar_equipamentos(conn: sqlite3.Connection, df: pd.DataFrame) -> None:
@@ -93,16 +88,6 @@ def preparar_dataframe(df: pd.DataFrame, colunas_tabela: list[str]) -> pd.DataFr
     return df[colunas_insert]
 
 
-def carregar_usuarios(conn: sqlite3.Connection) -> None:
-    conn.executemany(
-        """
-        INSERT OR IGNORE INTO usuarios (nome, email, role, id_equipamento_acesso)
-        VALUES (?, ?, ?, ?)
-        """,
-        USUARIOS_SEED,
-    )
-
-
 def carregar_dados() -> int:
     if not FEATURES_PATH.exists():
         raise FileNotFoundError(f"Arquivo não encontrado: {FEATURES_PATH}. Rode feature_engineering.py primeiro.")
@@ -111,7 +96,6 @@ def carregar_dados() -> int:
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("PRAGMA foreign_keys = ON")
         carregar_equipamentos(conn, df)
-        carregar_usuarios(conn)
         colunas_tabela = obter_colunas_tabela(conn)
         dados = preparar_dataframe(df, colunas_tabela)
         placeholders = ", ".join(["?"] * len(dados.columns))

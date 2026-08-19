@@ -6,82 +6,17 @@ from datetime import datetime
 import pandas as pd
 import sqlite3
 
+from ml.features import (
+    FAIXA_ENCODER,
+    OPERACAO_ENCODER,
+    SOLO_ENCODER,
+    calcular_features,
+    classificar_risco,
+    faixa_proximidade,
+    score_regra,
+)
 from ml.predictor import RiskPredictor
 from ml.recomendacao import recomendar
-
-
-SOLO_ENCODER = {"Arenoso": 0, "Misto": 1, "Argiloso": 2}
-OPERACAO_ENCODER = {"Transporte": 0, "Campo": 1}
-FAIXA_ENCODER = {"Baixo": 0, "Médio": 1, "Alto": 2, "Crítico": 3}
-
-
-def _faixa_proximidade(valor: int) -> str:
-    if valor < 50:
-        return "Crítico"
-    if valor < 200:
-        return "Alto"
-    if valor < 500:
-        return "Médio"
-    return "Baixo"
-
-
-def _calcular_features(dados: dict) -> dict:
-    """Adiciona as features derivadas esperadas pelo modelo."""
-    row = dict(dados)
-    row["tipo_solo_encoded"] = SOLO_ENCODER[row["tipo_solo"]]
-    row["tipo_operacao_encoded"] = OPERACAO_ENCODER[row["tipo_operacao"]]
-    faixa = _faixa_proximidade(row["proximidade_agua_m"])
-    row["faixa_proximidade_agua"] = faixa
-    row["faixa_proximidade_encoded"] = FAIXA_ENCODER[faixa]
-    row["indice_desgaste"] = row["horas_uso_equipamento"] / max(row["dias_ultima_manutencao"], 1)
-    row["risco_solo"] = (
-        row["umidade_solo_pct"] * row["tipo_solo_encoded"]
-    ) / max(row["declividade_graus"], 0.1)
-    row["risco_atolamento"] = (
-        row["faixa_proximidade_encoded"] * 25
-        + row["umidade_solo_pct"] * 0.35
-        + row["precipitacao_mm"] * 0.25
-        + row["tipo_solo_encoded"] * 8
-    )
-    row["risco_operacional"] = (
-        row["velocidade_operacao_kmh"] * (3 if row["tipo_operacao"] == "Campo" else 0.6)
-        + row["carga_pct"] * 0.3
-        + row["declividade_graus"] * 2
-        + max(0, 1000 - row["visibilidade_m"]) * 0.02
-    )
-    row["risco_manutencao"] = (
-        row["horas_uso_equipamento"] / 120
-        + row["dias_ultima_manutencao"] * 0.35
-        + row["historico_incidentes"] * 9
-    )
-    return row
-
-
-def _score_regra(row: dict) -> int:
-    """Calcula o score de risco pela regra heurística (mesma lógica do generate_dataset)."""
-    score = 0
-    score += max(0, 50 - row["proximidade_agua_m"] / 10)
-    score += row["umidade_solo_pct"] * 0.25
-    score += row["precipitacao_mm"] * 0.35
-    score += row["tipo_solo_encoded"] * 5
-    score += row["declividade_graus"] * 1.5
-    score += row["velocidade_operacao_kmh"] * (1.2 if row["tipo_operacao"] == "Campo" else 0.2)
-    score += row["carga_pct"] * 0.15
-    score += row["historico_incidentes"] * 7
-    score += max(0, row["dias_ultima_manutencao"] - 30) * 0.3
-    score += max(0, row["horas_uso_equipamento"] - 3000) / 200
-    score += max(0, 1000 - row["visibilidade_m"]) * 0.01
-    return int(min(100, max(0, score)))
-
-
-def _classificar_risco(score: int) -> str:
-    if score <= 25:
-        return "Baixo"
-    if score <= 50:
-        return "Médio"
-    if score <= 75:
-        return "Alto"
-    return "Crítico"
 
 
 def _inserir_telemetria(conn: sqlite3.Connection, dados: dict) -> int:
@@ -117,6 +52,8 @@ def _inserir_telemetria(conn: sqlite3.Connection, dados: dict) -> int:
         "risco_atolamento",
         "risco_operacional",
         "risco_manutencao",
+        "score_risco_calculado",
+        "diff_score",
     ]
     valores = [dados.get(col) for col in colunas]
     placeholders = ", ".join(["?"] * len(colunas))
@@ -166,11 +103,13 @@ def _inserir_alerta(conn: sqlite3.Connection, id_registro: int, id_equipamento: 
 
 def processar_telemetria(conn: sqlite3.Connection, dados: dict, predictor: RiskPredictor) -> dict:
     """Fluxo completo: insere telemetria, calcula score, prediz e registra alerta."""
-    row = _calcular_features(dados)
+    row = calcular_features(dados)
     row["data_hora"] = datetime.now().isoformat()
-    row["score_risco"] = _score_regra(row)
-    row["nivel_risco"] = _classificar_risco(row["score_risco"])
+    row["score_risco"] = score_regra(row)
+    row["nivel_risco"] = classificar_risco(row["score_risco"])
     row["alerta_gerado"] = int(row["nivel_risco"] in ("Alto", "Crítico"))
+    row["score_risco_calculado"] = row["score_risco"]
+    row["diff_score"] = 0
 
     id_registro = _inserir_telemetria(conn, row)
     row["id_registro"] = id_registro
@@ -183,6 +122,7 @@ def processar_telemetria(conn: sqlite3.Connection, dados: dict, predictor: RiskP
 
     _inserir_score_modelo(conn, pred)
     _inserir_alerta(conn, id_registro, row["id_equipamento"], pred["nivel_risco_predito"], pred["score_risco_predito"])
+    conn.commit()
 
     fatores = json.loads(pred["fatores_principais"])
     return {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pickle
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -9,27 +10,24 @@ from sklearn.preprocessing import MinMaxScaler
 
 from generate_dataset import calcular_score
 
+# Bootstrap para importar ml.features quando executado via `python src/data/...`.
+_SRC = Path(__file__).resolve().parents[1]
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
+from ml.features import (  # noqa: E402
+    FAIXA_ENCODER,
+    OPERACAO_ENCODER,
+    SOLO_ENCODER,
+    faixa_proximidade,
+)
+
 
 ROOT = Path(__file__).resolve().parents[2]
 RAW_PATH = ROOT / "data" / "raw" / "dataset_simulado.csv"
 OUTPUT_PATH = ROOT / "data" / "processed" / "features.csv"
 SCALER_PATH = Path(__file__).resolve().parent / "scaler.pkl"
 ENCODERS_PATH = Path(__file__).resolve().parent / "label_encoders.pkl"
-
-SOLO_ENCODER = {"Arenoso": 0, "Misto": 1, "Argiloso": 2}
-OPERACAO_ENCODER = {"Transporte": 0, "Campo": 1}
-FAIXA_ENCODER = {"Baixo": 0, "Médio": 1, "Alto": 2, "Crítico": 3}
-
-
-def faixa_proximidade(valor: int) -> str:
-    if valor < 50:
-        return "Crítico"
-    if valor < 200:
-        return "Alto"
-    if valor < 500:
-        return "Médio"
-    return "Baixo"
-
 
 def criar_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()

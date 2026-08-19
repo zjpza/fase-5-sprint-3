@@ -71,3 +71,41 @@ class LoginInput(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str
+
+class UserResponse(BaseModel):
+    id_usuario: int
+    nome: str
+    email: str
+    role: str
+    id_equipamento_acesso: str | None = None
+
+
+class TelemetriaHistoricoResponse(BaseModel):
+    id_registro: int
+    id_equipamento: str
+    data_hora: datetime
+    latitude: float | None = None
+    longitude: float | None = None
+    tipo_operacao: str | None = None
+    proximidade_agua_m: int | None = None
+    precipitacao_mm: float | None = None
+    umidade_solo_pct: float | None = None
+    tipo_solo: str | None = None
+    declividade_graus: float | None = None
+    temperatura_c: float | None = None
+    velocidade_vento_kmh: float | None = None
+    visibilidade_m: int | None = None
+    horas_uso_equipamento: int | None = None
+    dias_ultima_manutencao: int | None = None
+    velocidade_operacao_kmh: float | None = None
+    carga_pct: float | None = None
+    nivel_combustivel_pct: float | None = None
+    historico_incidentes: int | None = None
+    score_risco: int | None = None
+    nivel_risco: str | None = None
+    alerta_gerado: int | None = None
+    tipo_equipamento: str | None = None
+    estado_uf: str | None = None
+    score_risco_predito: int | None = None
+    nivel_risco_predito: str | None = None
+    modelo_utilizado: str | None = None
