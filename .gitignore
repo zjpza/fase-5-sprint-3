@@ -17,7 +17,9 @@ venv/
 data/raw/
 data/processed/
 
-# Banco de dados local gerado em runtime (mantemos um banco inicial populado no repo)
+# Banco de dados local gerado em runtime (mantemos sompo.db inicial populado no repo)
+# Para ignorar o banco, descomente a linha abaixo.
+# sompo.db
 sompo_runtime.db
 
 # Logs de execução
